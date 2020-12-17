@@ -1,0 +1,46 @@
+[
+  {
+    "Key": "Active",
+    "Value": "True"
+  },
+  {
+    "Key": "HideActive",
+    "Value": "False"
+  },
+  {
+    "Key": "Name",
+    "Value": "Vm Content Templates"
+  },
+  {
+    "Key": "UseXrmToolingConnector",
+    "Value": "False"
+  },
+  {
+    "Key": "ToolingConnectionId",
+    "Value": null
+  },
+  {
+    "Key": "AuthenticationProviderType",
+    "Value": "ActiveDirectory"
+  },
+  {
+    "Key": "DiscoveryServiceAddress",
+    "Value": "http:\/\/qa2012\/XRMServices\/2011\/Discovery.svc"
+  },
+  {
+    "Key": "OrganizationUniqueName",
+    "Value": "ContentTemplates"
+  },
+  {
+    "Key": "Domain",
+    "Value": "auqa2012"
+  },
+  {
+    "Key": "Username",
+    "Value": "joseph"
+  },
+  {
+    "Key": "Password",
+    "Value": "AQAAANCMnd8BFdERjHoAwE\/Cl+sBAAAAWUp\/SzF7pkm9FPTjzSG48gAAAAACAAAAAAAQZgAAAAEAACAAAAAm+Vu2bpXN9lupW18iKKDMXrBAf6V8QwG5O6EEuGldhwAAAAAOgAAAAAIAACAAAACnw2BIMQULui3afpXT6Sj6JlB8ETvcCKzujbdrZXmC+yAAAABUoBJ5t8fVdpYu1SfQdtC\/QnBnoAjGUuKNSJM\/DK3Rn0AAAABQvEORZ5BFhHPtTbiBR843pULmzFW34bg2\/dwpGO83el19JWFwYLnEmaAz0leKvyHE80PrW2avafGxZtml9pqq"
+  }
+]

@@ -1,0 +1,1 @@
+JosephM.Xrm.ContentTemplates.Console.exe -xrmsetting
