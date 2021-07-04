@@ -3,6 +3,8 @@ using JosephM.Xrm.ContentTemplates.Plugins.Rollups;
 using JosephM.Xrm.ContentTemplates.Plugins.Services;
 using JosephM.Xrm.ContentTemplates.Plugins.SharePoint;
 using JosephM.Xrm.ContentTemplates.Plugins.Xrm;
+using Microsoft.Xrm.Sdk;
+using System;
 
 namespace JosephM.Xrm.ContentTemplates.Plugins.Plugins
 {
@@ -61,7 +63,26 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Plugins
             get
             {
                 if (_localisationService == null)
-                    _localisationService = new LocalisationService(new UserLocalisationSettings(XrmService, Context.InitiatingUserId));
+                {
+                    Guid? userId = null;
+                    if (IsMessage(PluginMessage.Create))
+                    {
+                        userId = GetLookupGuid("createdonbehalfby");
+                        if(!userId.HasValue)
+                        {
+                            userId = GetLookupGuid("createdby");
+                        }
+                    }
+                    else if (IsMessage(PluginMessage.Update))
+                    {
+                        userId = GetLookupGuid("modifiedby");
+                    }
+                    if (!userId.HasValue)
+                    {
+                        userId = Context.InitiatingUserId;
+                    }
+                    _localisationService = new LocalisationService(new UserLocalisationSettings(XrmService, userId.Value));
+                }
                 return _localisationService;
             }
         }
