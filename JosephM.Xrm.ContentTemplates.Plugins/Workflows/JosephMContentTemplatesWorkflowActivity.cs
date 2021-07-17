@@ -10,24 +10,13 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Workflows
     public abstract class JosephMContentTemplatesWorkflowActivity<T> : XrmWorkflowActivityInstance<T>
         where T : XrmWorkflowActivityRegistration
     {
-        private JosephMContentTemplatesSettings _settings;
-        public JosephMContentTemplatesSettings JosephMContentTemplatesSettings
-        {
-            get
-            {
-                if (_settings == null)
-                    _settings = new JosephMContentTemplatesSettings(XrmService);
-                return _settings;
-            }
-        }
-
         private JosephMContentTemplatesService _service;
         public JosephMContentTemplatesService JosephMContentTemplatesService
         {
             get
             {
                 if (_service == null)
-                    _service = new JosephMContentTemplatesService(XrmService, LocalisationService, JosephMContentTemplatesSettings);
+                    _service = new JosephMContentTemplatesService(XrmService, LocalisationService);
                 return _service;
             }
         }

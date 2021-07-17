@@ -41,7 +41,7 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Workflows
                 throw new InvalidPluginExecutionException($"{nameof(ActivityThisType.ContentTemplate)} is a required input argument");
             }
 
-            var templateResponse = JosephMContentTemplatesService.GetContent(templateReference.Id, TargetType, TargetId, LocalisationService);
+            var templateResponse = JosephMContentTemplatesService.GenerateForContentTemplate(templateReference.Id, TargetType, TargetId, LocalisationService);
 
             ActivityThisType.TemplateSubjectResult.Set(ExecutionContext, templateResponse.Subject);
             ActivityThisType.TemplateContentResult.Set(ExecutionContext, templateResponse.Content);

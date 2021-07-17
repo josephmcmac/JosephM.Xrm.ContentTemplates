@@ -32,7 +32,7 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Plugins
                             throw new InvalidPluginExecutionException($"{GetFieldLabel(Fields.email_.regardingobjectid)} is required when {GetFieldLabel(Fields.email_.jmcg_populatefromregardingontemplate)} is set");
                         }
 
-                        var response = JosephMContentTemplatesService.GetContent(templateId.Value, regardingType, regardingId.Value, LocalisationService);
+                        var response = JosephMContentTemplatesService.GenerateForContentTemplate(templateId.Value, regardingType, regardingId.Value, LocalisationService);
                         if(response.Subject != null)
                         {
                             SetField(Fields.email_.subject, response.Subject);

@@ -87,7 +87,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="JosephMContentTemplatesPluginRegistration.cs" />
-    <Compile Include="JosephMContentTemplatesSettings.cs" />
     <Compile Include="Core\ConsoleUserInterface.cs" />
     <Compile Include="Core\CsvUtility.cs" />
     <Compile Include="Core\ExceptionExtentions.cs" />

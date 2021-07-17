@@ -1,8 +1,11 @@
 ﻿using JosephM.Xrm.ContentTemplates.Plugins.Xrm;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Xrm.Sdk.Query;
 using Schema;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace JosephM.Xrm.ContentTemplates.Plugins.Test
 {
@@ -27,7 +30,7 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Test
                 { Fields.incident_.followupby, DateTime.Now.AddDays(10) }
             });
 
-            var contentResponse = JosephMContentTemplatesService.GetContent(contentTemplate.Id, aCase.LogicalName, aCase.Id, LocalisationService);
+            var contentResponse = JosephMContentTemplatesService.GenerateForContentTemplate(contentTemplate.Id, aCase.LogicalName, aCase.Id, LocalisationService);
             Assert.AreEqual($"Subject {aCase.GetStringField(Fields.incident_.title)}", contentResponse.Subject);
             var LocalCreatedOn = LocalisationService.ConvertToTargetTime(aCase.GetDateTimeField(Fields.incident_.createdon).Value);
             var localFollowUpBy = LocalisationService.ConvertToTargetTime(aCase.GetDateTimeField(Fields.incident_.followupby).Value);
@@ -41,10 +44,57 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Test
                 { Fields.incident_.description, "Test Description" },
             });
 
-            contentResponse = JosephMContentTemplatesService.GetContent(contentTemplate.Id, aCase.LogicalName, aCase.Id, LocalisationService);
+            contentResponse = JosephMContentTemplatesService.GenerateForContentTemplate(contentTemplate.Id, aCase.LogicalName, aCase.Id, LocalisationService);
             Assert.AreEqual($"Subject {aCase.GetStringField(Fields.incident_.title)}", contentResponse.Subject);
             LocalCreatedOn = LocalisationService.ConvertToTargetTime(aCase.GetDateTimeField(Fields.incident_.createdon).Value);
             Assert.AreEqual($"First Name {TestContact.GetStringField(Fields.contact_.firstname)} Description {aCase.GetStringField(Fields.incident_.description)} Created By {XrmService.LookupField(Entities.systemuser, CurrentUserId, Fields.systemuser_.fullname)} Today {LocalisationService.ToDateDisplayString(DateTime.Today)} Created On {LocalisationService.ToDateTimeDisplayString(LocalCreatedOn)} Follow Up By ", contentResponse.Content);
+
+            DeleteMyToday();
+        }
+
+        [TestMethod]
+        public void ServiceContentGenerationWithFetchTest()
+        {
+            DeleteAllEntityType(Entities.jmcg_contenttemplate);
+
+            var content = @"<h1>Contacts for [name]</h1>
+[forfetch|<fetch>
+  <entity name='contact'>
+    <attribute name='contactid' />
+    <filter type='and'>
+      <condition attribute='accountid' operator='eq' value='[accountid]' />
+    </filter>
+  </entity>
+</fetch>]
+<p>Contact Name: [fullname] - Email: [emailaddress1]</p>
+[endforfetch]
+<h1>End Contacts</h1>";
+
+            var contentTemplate = CreateTestRecord(Entities.jmcg_contenttemplate, new Dictionary<string, object>
+            {
+                { Fields.jmcg_contenttemplate_.jmcg_subject, "Subject [name]" },
+                { Fields.jmcg_contenttemplate_.jmcg_content, content },
+            });
+
+            var account = CreateAccount();
+            CreateContact(account);
+            CreateContact(account);
+            CreateContact(account);
+
+            var contacts = XrmService.RetrieveAllAndConditions(Entities.contact, new[]
+            {
+                new ConditionExpression(Fields.contact_.parentcustomerid, ConditionOperator.Equal, account.Id)
+            });
+
+            Assert.IsTrue(contacts.Count() == 4);
+
+            var contentResponse = JosephMContentTemplatesService.GenerateForContentTemplate(contentTemplate.Id, account.LogicalName, account.Id, LocalisationService);
+
+            Assert.IsTrue(contentResponse.Content.Contains(account.GetStringField(Fields.account_.name)));
+            foreach (var contact in contacts)
+            {
+                Assert.IsTrue(contentResponse.Content.Contains(contact.GetStringField(Fields.contact_.fullname)));
+            }
 
             DeleteMyToday();
         }

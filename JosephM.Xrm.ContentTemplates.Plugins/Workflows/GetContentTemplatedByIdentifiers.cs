@@ -69,7 +69,7 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Workflows
                 throw new InvalidPluginExecutionException($"Input argument {nameof(ActivityThisType.TargetId)} is required to be a valid {typeof(Guid).Name} value");
             }
 
-            var templateResponse = JosephMContentTemplatesService.GetContent(contentTemplate.Id, targetType, targetId, LocalisationService);
+            var templateResponse = JosephMContentTemplatesService.GenerateForContentTemplate(contentTemplate.Id, targetType, targetId, LocalisationService);
 
             ActivityThisType.TemplateSubjectResult.Set(ExecutionContext, templateResponse.Subject ?? "");
             ActivityThisType.TemplateContentResult.Set(ExecutionContext, templateResponse.Content ?? "");

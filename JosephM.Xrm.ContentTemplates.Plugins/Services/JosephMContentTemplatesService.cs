@@ -10,39 +10,191 @@ using System.Linq;
 namespace JosephM.Xrm.ContentTemplates.Plugins.Services
 {
     /// <summary>
-    /// A service class for performing logic
+    /// A service class to populated of templated html with content from records
     /// </summary>
     public class JosephMContentTemplatesService
     {
+        //constants for supported tags
+        private const string staticIdentifier = "static|";
+        private const string ifIdentifier = "if|";
+        private const string endifIdentifier = "endif";
+        private const string forfetchIdentifier = "forfetch|";
+        private const string endforfetchIdentifier = "endforfetch";
+
         private XrmService XrmService { get; set; }
         public LocalisationService LocalisationService { get; set; }
-        private JosephMContentTemplatesSettings JosephMContentTemplatesSettings { get; set; }
 
-        public JosephMContentTemplatesService(XrmService xrmService, LocalisationService localisationService, JosephMContentTemplatesSettings settings)
+        public JosephMContentTemplatesService(XrmService xrmService, LocalisationService localisationService)
         {
             XrmService = xrmService;
             LocalisationService = localisationService;
-            JosephMContentTemplatesSettings = settings;
         }
 
-        public GenerateEmailContentResponse GetContent(Guid contentTemplateId, string emailTemplateTargetType, Guid emailTemplateTargetId, LocalisationService localisationService, Dictionary<string, string> explicitTokenDictionary = null)
+        public GenerateContentResponse GenerateForContentTemplate(Guid contentTemplateId, string emailTemplateTargetType, Guid emailTemplateTargetId, LocalisationService localisationService, Dictionary<string, string> explicitTokenDictionary = null)
         {
-            var response = new GenerateEmailContentResponse();
-
-            var targetTokens = new List<string>();
-            var staticTokens = new Dictionary<string, List<string>>();
-            var ifTokens = new List<string>();
-            var staticIdentifier = "static|";
-            var ifIdentifier = "if|";
-            var endifIdentifier = "endif";
-
             var resource = XrmService.Retrieve(Entities.jmcg_contenttemplate, contentTemplateId);
             var contentDescription = resource.GetStringField(Fields.jmcg_contenttemplate_.jmcg_content);
             var contentSubject = resource.GetStringField(Fields.jmcg_contenttemplate_.jmcg_subject);
             var appendTemplateId = resource.GetLookupGuid(Fields.jmcg_contenttemplate_.jmcg_appendtemplate);
 
-            //replace all explicit tokens e.g. [TODAY] => ~DateTime.Today.ToString("dd/MM/yyyy")
-            explicitTokenDictionary = explicitTokenDictionary ?? new Dictionary<string, string>();
+            var response = PopulateTemplateContent(emailTemplateTargetType, new[] { emailTemplateTargetId }, localisationService, explicitTokenDictionary, contentDescription, contentSubject);
+
+            if (appendTemplateId.HasValue)
+            {
+                var appendContent = GenerateForContentTemplate(appendTemplateId.Value, emailTemplateTargetType, emailTemplateTargetId, localisationService, explicitTokenDictionary: explicitTokenDictionary);
+                response.Content += "\n" + appendContent.Content;
+            }
+
+            return response;
+        }
+
+        public GenerateContentResponse PopulateTemplateContent(string emailTemplateTargetType, IEnumerable<Guid> targetRecordIds, LocalisationService localisationService, Dictionary<string, string> explicitTokenDictionary, string templateContent, string templateSubject)
+        {
+            string contentResult = null;
+            string subjectResult = templateSubject;
+
+            if (targetRecordIds != null && targetRecordIds.Any())
+            {
+
+                var targetTokens = new List<string>();
+                var staticTokens = new Dictionary<string, List<string>>();
+                var ifTokens = new List<string>();
+                var fetchTokens = new List<string>();
+
+                explicitTokenDictionary = explicitTokenDictionary ?? new Dictionary<string, string>();
+
+                templateContent = ReplaceExplicitTokens(localisationService, explicitTokenDictionary, templateContent);
+
+                //extract all tokens in the content for processing and/or including in queries for target records
+                ParseOutTokens(templateContent, targetTokens, staticTokens, ifTokens, fetchTokens);
+                ParseOutTokens(subjectResult, targetTokens, staticTokens, ifTokens, fetchTokens);
+
+                var targetObjects = GetTargetObjects(emailTemplateTargetType, targetRecordIds, targetTokens);
+
+                foreach (var templateId in targetRecordIds)
+                {
+                    var targetRecord = targetObjects.Any(e => e.Id == templateId)
+                        ? targetObjects.First(e => e.Id == templateId)
+                        : null;
+                    if (targetRecord != null)
+                    {
+                        var thisItemsTemplateContent = templateContent;
+                        thisItemsTemplateContent = ProcessFetchXmlTokens(emailTemplateTargetType, localisationService, explicitTokenDictionary, targetTokens, fetchTokens, targetRecord, thisItemsTemplateContent);
+
+                        thisItemsTemplateContent = ProcessIfTokens(explicitTokenDictionary, thisItemsTemplateContent, ifTokens, targetRecord);
+
+                        //replace all the target tokens
+                        foreach (var token in targetTokens)
+                        {
+                            var sourceType = emailTemplateTargetType;
+                            string displayString = GetDisplayString(targetRecord, token, isHtml: true);
+                            thisItemsTemplateContent = thisItemsTemplateContent.Replace("[" + token + "]", displayString);
+                            if (subjectResult != null)
+                            {
+                                subjectResult = subjectResult.Replace("[" + token + "]", displayString);
+                            }
+                        }
+
+                        thisItemsTemplateContent = ReplaceStaticTokens(localisationService, staticTokens, thisItemsTemplateContent);
+
+                        string removeThisFunkyChar = "\xFEFF";
+                        if (thisItemsTemplateContent != null)
+                            thisItemsTemplateContent = thisItemsTemplateContent.Replace(removeThisFunkyChar, "");
+
+                        contentResult += thisItemsTemplateContent;
+                    }
+                }
+            }
+
+            var response = new GenerateContentResponse();
+            response.Content = contentResult;
+            response.Subject = subjectResult;
+            return response;
+        }
+
+        private string ReplaceStaticTokens(LocalisationService localisationService, Dictionary<string, List<string>> staticTokens, string thisItemsTemplateContent)
+        {
+            foreach (var staticTargetTokens in staticTokens)
+            {
+                var staticType = staticTargetTokens.Key;
+                var staticFields = staticTargetTokens.Value;
+
+                //query to get all the fields for replacing tokens
+                var staticQuery = BuildSourceQuery(staticType, staticFields);
+                var staticTarget = XrmService.RetrieveFirst(staticQuery);
+
+                //replace all the tokens
+                foreach (var staticField in staticFields)
+                {
+                    string staticFunc = null;
+                    thisItemsTemplateContent = thisItemsTemplateContent.Replace("[static|" + string.Format("{0}.{1}", staticType, staticField) + "]", XrmService.GetFieldAsDisplayString(staticType, staticField, staticTarget.GetField(staticField), localisationService, isHtml: true, func: staticFunc));
+                }
+            }
+
+            return thisItemsTemplateContent;
+        }
+
+        private string ProcessFetchXmlTokens(string emailTemplateTargetType, LocalisationService localisationService, Dictionary<string, string> explicitTokenDictionary, List<string> targetTokens, List<string> fetchTokens, Entity targetRecord, string thisItemsTemplateContent)
+        {
+            //process fetches first as content has tokens only relevant for the subquery
+            foreach (var fetchToken in fetchTokens)
+            {
+                var indexOfToken = thisItemsTemplateContent.IndexOf(fetchToken);
+                var remainingContent = thisItemsTemplateContent.Substring(indexOfToken);
+                var startFetch = remainingContent.IndexOf("<fetch");
+                var lengthToEndFetch = remainingContent.IndexOf("/fetch>");
+                var subIndexOfEndForFetch = remainingContent.IndexOf(endforfetchIdentifier);
+                if (subIndexOfEndForFetch < 1)
+                {
+                    throw new Exception($"Missing '{endforfetchIdentifier}' after '{forfetchIdentifier}");
+                }
+
+                var fetchXml = remainingContent.Substring(startFetch, lengthToEndFetch + 7 - startFetch);
+                var repeatingContent = remainingContent.Substring(lengthToEndFetch + 8, subIndexOfEndForFetch - lengthToEndFetch - 8 - 1);
+                //replace tokens in fetchXml
+                foreach (var token in targetTokens)
+                {
+                    var sourceType = emailTemplateTargetType;
+
+                    var fetchValue = GetQueryValueForToken(targetRecord, token);
+                    if (fetchValue == null)
+                    {
+                        throw new Exception($"Token '{token}' within fetchXml resolved to a null value. Fetch tokens are required to be populated through target record");
+                    }
+                    fetchXml = fetchXml.Replace("[" + token + "]", fetchValue?.ToString());
+                }
+
+                var fetchResults = XrmService.Fetch(fetchXml);
+                var contentForFetchResult = fetchResults.Any()
+                    ? PopulateTemplateContent(fetchResults.First().LogicalName, fetchResults.Select(e => e.Id), localisationService, explicitTokenDictionary, repeatingContent, null).Content
+                    : null;
+                thisItemsTemplateContent = thisItemsTemplateContent.Substring(0, indexOfToken - 1)
+                    + contentForFetchResult
+                    + remainingContent.Substring(subIndexOfEndForFetch + endforfetchIdentifier.Length + 1);
+            }
+
+            return thisItemsTemplateContent;
+        }
+
+        private List<Entity> GetTargetObjects(string emailTemplateTargetType, IEnumerable<Guid> targetRecordIds, List<string> targetTokens)
+        {
+            var targetObjects = new List<Entity>();
+
+            var throwAwayList = targetRecordIds.ToList();
+            while (throwAwayList.Any())
+            {
+                var theseIds = throwAwayList.Take(50).ToArray();
+                throwAwayList.RemoveRange(0, theseIds.Count());
+                var query = XrmService.BuildSourceQuery(emailTemplateTargetType, targetTokens);
+                query.Criteria.AddCondition(new ConditionExpression(XrmService.GetPrimaryKey(emailTemplateTargetType), ConditionOperator.In, theseIds.Cast<object>().ToArray()));
+                targetObjects.AddRange(XrmService.RetrieveAll(query));
+            }
+
+            return targetObjects;
+        }
+
+        private static string ReplaceExplicitTokens(LocalisationService localisationService, Dictionary<string, string> explicitTokenDictionary, string contentDescription)
+        {
             AddToken(explicitTokenDictionary, "TODAY", localisationService.ToDateDisplayString(localisationService.TargetToday));
             AddToken(explicitTokenDictionary, "1DAY", localisationService.ToDateDisplayString(localisationService.TargetToday.AddDays(1)));
             AddToken(explicitTokenDictionary, "2DAYS", localisationService.ToDateDisplayString(localisationService.TargetToday.AddDays(2)));
@@ -55,64 +207,26 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
                 }
             }
 
-            //parse out all tokens inside [] chars to replace in the content
-            var i = 0;
-            while (i < contentDescription.Length)
-            {
-                if (contentDescription[i] == '[')
-                {
-                    var startIndex = i;
-                    while (i < contentDescription.Length)
-                    {
-                        if (contentDescription[i] == ']')
-                        {
-                            var endIndex = i;
-                            var token = contentDescription.Substring(startIndex + 1, endIndex - startIndex - 1);
+            return contentDescription;
+        }
 
-                            if (token.ToLower().StartsWith(ifIdentifier) || token.ToLower().StartsWith(endifIdentifier))
-                            {
-                                ifTokens.Add(token);
-                            }
-                            else if (token.ToLower().StartsWith(staticIdentifier))
-                            {
-                                token = token.Substring(staticIdentifier.Length);
-                                var split = token.Split('.');
-                                if (split.Count() != 2)
-                                    throw new Exception(string.Format("The static token {0} is not formatted as expected. It should be of the form type.field", token));
-                                var staticType = split.First();
-                                var staticField = split.ElementAt(1);
-                                if (!staticTokens.ContainsKey(staticType))
-                                    staticTokens.Add(staticType, new List<string>());
-                                staticTokens[staticType].Add(staticField);
-                            }
-                            else
-                            {
-                                targetTokens.Add(token);
-                            }
-                            break;
-                        }
-                        i++;
-                    }
-                }
-                else
-                    i++;
-            }
-
+        private static void ParseOutTokens(string content, List<string> targetTokens, Dictionary<string, List<string>> staticTokens, List<string> ifTokens, List<string> fetchTokens)
+        {
             //parse out all tokens inside [] chars to replace in the subject
-            if (contentSubject != null)
+            if (content != null)
             {
                 var j = 0;
-                while (j < contentSubject.Length)
+                while (j < content.Length)
                 {
-                    if (contentSubject[j] == '[')
+                    if (content[j] == '[')
                     {
                         var startIndex = j;
-                        while (j < contentSubject.Length)
+                        while (j < content.Length)
                         {
-                            if (contentSubject[j] == ']')
+                            if (content[j] == ']')
                             {
                                 var endIndex = j;
-                                var token = contentSubject.Substring(startIndex + 1, endIndex - startIndex - 1);
+                                var token = content.Substring(startIndex + 1, endIndex - startIndex - 1);
 
                                 if (token.ToLower().StartsWith(ifIdentifier) || token.ToLower().StartsWith(endifIdentifier))
                                 {
@@ -130,6 +244,32 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
                                         staticTokens.Add(staticType, new List<string>());
                                     staticTokens[staticType].Add(staticField);
                                 }
+                                else if(token.ToLower().StartsWith(endforfetchIdentifier))
+                                {
+                                    //nothing required at end fetch?
+                                }
+                                else if (token.ToLower().StartsWith(forfetchIdentifier) || token.ToLower().StartsWith(endforfetchIdentifier))
+                                {
+                                    var remainingPart = content.Substring(startIndex);
+                                    var endForfetchIndex = remainingPart.IndexOf(endforfetchIdentifier);
+                                    if (endForfetchIndex == -1)
+                                    {
+                                        throw new Exception($"Missing '{endforfetchIdentifier}' token after '{forfetchIdentifier}'");
+                                    }
+                                    var subEndIndex = endForfetchIndex + endforfetchIdentifier.Length + 1;
+                                    j = startIndex + subEndIndex;
+                                    token = content.Substring(startIndex, subEndIndex);
+                                    //for a fetch taken lets put the entire fetch section as the token
+                                    var endFetchIndex = remainingPart.IndexOf("</fetch>");
+                                    if(endFetchIndex == -1)
+                                    {
+                                        throw new Exception($"Missing '</fetch>' token after '{forfetchIdentifier}'");
+                                    }
+                                    var fetchPart = remainingPart.Substring(forfetchIdentifier.Length + 1, endFetchIndex + "</fetch>".Length - (forfetchIdentifier.Length + 1));
+                                    ParseOutTokens(fetchPart, targetTokens, staticTokens, ifTokens, fetchTokens);
+                                    fetchTokens.Add(token);
+                                    //skip the content within fetch for now as this will have tokens for a sub query
+                                }
                                 else
                                 {
                                     targetTokens.Add(token);
@@ -143,56 +283,6 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
                         j++;
                 }
             }
-
-            //query to get all the fields for replacing tokens
-            var query = XrmService.BuildSourceQuery(emailTemplateTargetType, targetTokens);
-            query.Criteria.AddCondition(new ConditionExpression(XrmService.GetPrimaryKey(emailTemplateTargetType), ConditionOperator.Equal, emailTemplateTargetId));
-            var targetObject = XrmService.RetrieveFirst(query);
-
-            contentDescription = ProcessIfTokens(explicitTokenDictionary, contentDescription, ifTokens, endifIdentifier, targetObject);
-
-            //replace all the tokens
-            foreach (var token in targetTokens)
-            {
-                var sourceType = emailTemplateTargetType;
-                string displayString = GetDisplayString(targetObject, token, isHtml: true);
-                contentDescription = contentDescription.Replace("[" + token + "]", displayString);
-                if (contentSubject != null)
-                {
-                    contentSubject = contentSubject.Replace("[" + token + "]", displayString);
-                }
-            }
-
-            foreach (var staticTargetTokens in staticTokens)
-            {
-                var staticType = staticTargetTokens.Key;
-                var staticFields = staticTargetTokens.Value;
-
-                //query to get all the fields for replacing tokens
-                var staticQuery = BuildSourceQuery(staticType, staticFields);
-                var staticTarget = XrmService.RetrieveFirst(staticQuery);
-
-                //replace all the tokens
-                foreach (var staticField in staticFields)
-                {
-                    string staticFunc = null;
-                    contentDescription = contentDescription.Replace("[static|" + string.Format("{0}.{1}", staticType, staticField) + "]", XrmService.GetFieldAsDisplayString(staticType, staticField, staticTarget.GetField(staticField), localisationService, isHtml: true, func: staticFunc));
-                }
-            }
-
-            string removeThisFunkyChar = "\xFEFF";
-            if (contentDescription != null)
-                contentDescription = contentDescription.Replace(removeThisFunkyChar, "");
-
-            if (appendTemplateId.HasValue)
-            {
-                var appendContent = GetContent(appendTemplateId.Value, emailTemplateTargetType, emailTemplateTargetId, localisationService, explicitTokenDictionary: explicitTokenDictionary);
-                contentDescription = contentDescription + "\n" + appendContent.Content;
-            }
-
-            response.Content = contentDescription;
-            response.Subject = contentSubject;
-            return response;
         }
 
         /// <summary>
@@ -315,6 +405,22 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
             var displayString = XrmService.GetFieldLabel(thisFieldName, thisFieldType);
             return displayString;
         }
+        public object GetQueryValueForToken(Entity targetObject, string token, bool isHtml = false)
+        {
+            var fieldPaths = XrmService.GetTypeFieldPath(token, targetObject.LogicalName);
+            var thisFieldType = fieldPaths.Last().Key;
+            var thisFieldName = fieldPaths.Last().Value;
+            string func = null;
+            var getFieldString = token.Replace("|", "_");
+            var splitFunc = getFieldString.Split(':');
+            if (splitFunc.Count() > 1)
+            {
+                func = splitFunc.First();
+                getFieldString = splitFunc.ElementAt(1);
+            }
+            return ConvertToQueryValue(targetObject.GetField(getFieldString));
+        }
+
         public string GetDisplayString(Entity targetObject, string token, bool isHtml = false)
         {
             var fieldPaths = XrmService.GetTypeFieldPath(token, targetObject.LogicalName);
@@ -328,12 +434,12 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
                 func = splitFunc.First();
                 getFieldString = splitFunc.ElementAt(1);
             }
-            var displayString = XrmService.GetFieldAsDisplayString(thisFieldType, thisFieldName, targetObject.GetField(getFieldString), LocalisationService, isHtml: isHtml, func: func);
+            var tokenFieldValue = targetObject.GetField(getFieldString);
+            var displayString = XrmService.GetFieldAsDisplayString(thisFieldType, thisFieldName, tokenFieldValue, LocalisationService, isHtml: isHtml, func: func);
             return displayString;
         }
 
-
-        public class GenerateEmailContentResponse
+        public class GenerateContentResponse
         {
             public string Subject { get; set; }
             public string Content { get; set; }
@@ -341,7 +447,7 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
 
 
 
-        private string ProcessIfTokens(Dictionary<string, string> explicitTokenDictionary, string activityDescription, List<string> ifTokens, string endifIdentifier, Entity targetObject)
+        private string ProcessIfTokens(Dictionary<string, string> explicitTokenDictionary, string activityDescription, List<string> ifTokens, Entity targetObject)
         {
             //process all the ifs (clear where not)
             while (ifTokens.Any())
@@ -402,7 +508,7 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
                             var startRemove = ifTokenIndex - 1;
                             var endRemove = currentIndex - 1;
                             var innerDescription = activityDescription.Substring(startRemove + token.Length + 2, endRemove - startRemove - token.Length - 2);
-                            var innerDescriptionprocessed = ProcessIfTokens(explicitTokenDictionary, innerDescription, innerTokens, endifIdentifier, targetObject);
+                            var innerDescriptionprocessed = ProcessIfTokens(explicitTokenDictionary, innerDescription, innerTokens, targetObject);
                             currentIndex = currentIndex - (innerDescription.Length - innerDescriptionprocessed.Length);
                             activityDescription = activityDescription.Substring(0, startRemove + token.Length + 2)
                                 + innerDescriptionprocessed
@@ -445,6 +551,17 @@ namespace JosephM.Xrm.ContentTemplates.Plugins.Services
         {
             if (!explicitTokenDictionary.ContainsKey(key))
                 explicitTokenDictionary.Add(key, value);
+        }
+
+        public object ConvertToQueryValue(object value)
+        {
+            if (value is EntityReference er)
+                value = er.Id;
+            else if (value is OptionSetValue osv)
+                value = osv.Value;
+            else if (value is Money m)
+                value = m.Value;
+            return value;
         }
     }
 }

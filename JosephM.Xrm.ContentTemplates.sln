@@ -36,6 +36,12 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "1.0.1.0", "1.0.1.0", "{7674
 		Releases\1.0.1.0\JosephMcGregorContentTemplates_1_0_1_0_managed.zip = Releases\1.0.1.0\JosephMcGregorContentTemplates_1_0_1_0_managed.zip
 	EndProjectSection
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "1.1.0.0", "1.1.0.0", "{A394A224-29D8-4832-818B-192305F2539E}"
+	ProjectSection(SolutionItems) = preProject
+		Releases\1.1.0.0\JosephMcGregorContentTemplates_1_1_0_0.zip = Releases\1.1.0.0\JosephMcGregorContentTemplates_1_1_0_0.zip
+		Releases\1.1.0.0\JosephMcGregorContentTemplates_1_1_0_0_managed.zip = Releases\1.1.0.0\JosephMcGregorContentTemplates_1_1_0_0_managed.zip
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -65,6 +71,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{5DE190A4-F4D8-4DD0-8B03-C8527C86DA04} = {6335228D-52E4-454C-B11C-83C292B8058D}
 		{7674A2F3-67E1-454F-AB66-B01EFA30B796} = {6335228D-52E4-454C-B11C-83C292B8058D}
+		{A394A224-29D8-4832-818B-192305F2539E} = {6335228D-52E4-454C-B11C-83C292B8058D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C6FDD4B9-8F37-4418-8D97-652D229B13C7}
